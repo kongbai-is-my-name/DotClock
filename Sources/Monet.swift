@@ -218,6 +218,17 @@ enum Monet {
 /// 小组件用到的颜色角色。
 struct Theme {
     var surface, border, digits, accent, label, sub, dim, lit: Color
+
+    /// 玻璃风格：底色变成半透明的着色层，分隔线和暗点改为半透明白 / 黑，
+    /// 让背后的桌面透过来，同时保证文字在任意壁纸上都看得清。
+    /// `tint` 为 nil 时用主题自己的底色；`opacity` 是底色浓度（0 = 完全透明，1 = 不透明）。
+    func glassy(dark: Bool, tint: Color? = nil, opacity: Double = 0.3) -> Theme {
+        var theme = self
+        theme.surface = (tint ?? surface).opacity(opacity)
+        theme.border = dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08)
+        theme.dim = dark ? Color.white.opacity(0.16) : Color.black.opacity(0.10)
+        return theme
+    }
 }
 
 struct ThemePair {

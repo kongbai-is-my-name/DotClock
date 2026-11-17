@@ -61,6 +61,14 @@ final class Store: ObservableObject {
     /// 额外高度（缩放前的点数，≥0，只拉长时变大）
     @Published var extraHeight: CGFloat { didSet { defaults.set(Double(extraHeight), forKey: "extraHeight") } }
     @Published var animateWeather: Bool { didSet { defaults.set(animateWeather, forKey: "animateWeather") } }
+    /// 透明玻璃风格（模糊桌面 + 高光描边）
+    @Published var glass: Bool { didSet { defaults.set(glass, forKey: "glass") } }
+    /// 玻璃底色："theme"（跟随主题）或十六进制颜色（预设 / 自定义 / 从屏幕吸取）
+    @Published var glassTint: String { didSet { defaults.set(glassTint, forKey: "glassTint") } }
+    /// 玻璃底色浓度 0…1（0 = 只剩模糊，1 = 底色不透明）
+    @Published var glassOpacity: Double { didSet { defaults.set(glassOpacity, forKey: "glassOpacity") } }
+    /// 背景模糊强度 0…1（0 = 完全清晰地透出桌面）
+    @Published var glassBlur: Double { didSet { defaults.set(glassBlur, forKey: "glassBlur") } }
     /// 小组件当前是否露在屏幕上；被全屏窗口等完全遮住时暂停动画，省电
     @Published var isVisible = true
     @Published private(set) var weather: Weather?
@@ -101,6 +109,10 @@ final class Store: ObservableObject {
         showWeather = defaults.object(forKey: "showWeather") as? Bool ?? true
         fahrenheit = defaults.bool(forKey: "fahrenheit")
         animateWeather = defaults.object(forKey: "animateWeather") as? Bool ?? true
+        glass = defaults.bool(forKey: "glass")
+        glassTint = defaults.string(forKey: "glassTint") ?? "theme"
+        glassOpacity = min(1, max(0, defaults.object(forKey: "glassOpacity") as? Double ?? 0.3))
+        glassBlur = min(1, max(0, defaults.object(forKey: "glassBlur") as? Double ?? 1))
         let savedFont = defaults.string(forKey: "textFont") ?? TextFont.dot
         textFont = TextFont.options.contains { $0.id == savedFont } ? savedFont : TextFont.dot
         let savedDigits = DigitStyle(rawValue: defaults.string(forKey: "digitStyle") ?? "") ?? .round
@@ -125,7 +137,15 @@ final class Store: ObservableObject {
 
     /// 当前主题，并套用用户选择的数字颜色。
     func theme(dark: Bool) -> Theme {
-        Store.theme(themes, dark: dark, digitColor: digitColor)
+        let theme = Store.theme(themes, dark: dark, digitColor: digitColor)
+        return glass ? theme.glassy(dark: dark, tint: Store.color(hex: glassTint), opacity: glassOpacity) : theme
+    }
+
+    /// 十六进制字符串转颜色；不是合法颜色（如 "theme"）时返回 nil。
+    static func color(hex: String) -> Color? {
+        guard hex.count == 6, let value = RGB(hex, radix: 16) else { return nil }
+        let (r, g, b) = ColorMath.channels(value)
+        return Color(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
     }
 
     static func theme(_ themes: ThemePair, dark: Bool, digitColor: String) -> Theme {

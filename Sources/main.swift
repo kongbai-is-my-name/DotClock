@@ -119,6 +119,47 @@ final class ActionItem: NSMenuItem {
     @objc private func fire() { handler?() }
 }
 
+/// 菜单里的滑块：上面一行标题和百分比，下面是滑块，拖动时实时生效。
+final class SliderItem: NSMenuItem {
+    private var handler: ((Double) -> Void)?
+    private var titleText = ""
+    private let valueLabel = NSTextField(labelWithString: "")
+
+    convenience init(_ title: String, value: Double, _ handler: @escaping (Double) -> Void) {
+        self.init(title: title, action: nil, keyEquivalent: "")
+        self.handler = handler
+        titleText = title
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 46))
+        valueLabel.font = .menuFont(ofSize: 0)
+        valueLabel.textColor = .secondaryLabelColor
+        valueLabel.frame = NSRect(x: 20, y: 26, width: 216, height: 16)
+        container.addSubview(valueLabel)
+
+        let slider = NSSlider(value: value, minValue: 0, maxValue: 1, target: self, action: #selector(changed(_:)))
+        slider.isContinuous = true
+        slider.controlSize = .small
+        slider.frame = NSRect(x: 18, y: 4, width: 214, height: 20)
+        container.addSubview(slider)
+        view = container
+        showValue(value)
+    }
+
+    private func showValue(_ value: Double) {
+        valueLabel.stringValue = "\(titleText)  \(Int((value * 100).rounded()))%"
+    }
+
+    @objc private func changed(_ sender: NSSlider) {
+        showValue(sender.doubleValue)
+        handler?(sender.doubleValue)
+    }
+}
+
+/// 自定义颜色面板当前在改哪一项。
+enum ColorTarget {
+    case seed, digits, glassTint
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let store = Store()
     private var window: NSWindow!
@@ -130,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var anchorRight = false
     private var anchorBottom = false
     private var baseHeight: CGFloat = 0
-    private var pickingSeedColor = false
+    private var colorTarget = ColorTarget.digits
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         hosting = WidgetHostingView(rootView: WidgetRoot(store: store))
@@ -207,6 +248,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     private func applyAppearance() {
+        // 玻璃风格下用系统窗口阴影把卡片从桌面上“托”起来
+        if window.hasShadow != store.glass {
+            window.hasShadow = store.glass
+            window.invalidateShadow()
+        }
         switch store.appearance {
         case "dark": window.appearance = NSAppearance(named: .darkAqua)
         case "light": window.appearance = NSAppearance(named: .aqua)
@@ -318,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         digitColor.submenu?.addItem(.separator())
         let isCustom = !presets.contains { $0.1 == store.digitColor }
-        digitColor.submenu?.addItem(ActionItem("自定义颜色…", checked: isCustom) { [weak self] in self?.showColorPanel(forSeed: false) })
+        digitColor.submenu?.addItem(ActionItem("自定义颜色…", checked: isCustom) { [weak self] in self?.showColorPanel(for: .digits) })
         menu.addItem(digitColor)
 
         let textFont = NSMenuItem(title: "文字字体", action: nil, keyEquivalent: "")
@@ -342,7 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         color.submenu?.addItem(.separator())
         let isCustomSeed = !seedHexes.contains(store.seedMode.lowercased())
-        color.submenu?.addItem(ActionItem("自定义主题色…", checked: isCustomSeed) { [weak self] in self?.showColorPanel(forSeed: true) })
+        color.submenu?.addItem(ActionItem("自定义主题色…", checked: isCustomSeed) { [weak self] in self?.showColorPanel(for: .seed) })
         menu.addItem(color)
 
         let appearance = NSMenuItem(title: "外观", action: nil, keyEquivalent: "")
@@ -353,6 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             })
         }
         menu.addItem(appearance)
+        menu.addItem(glassMenu())
 
         menu.addItem(.separator())
         let netTimeTitle = store.useNetworkTime
@@ -399,10 +446,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         addPanel?.makeKeyAndOrderFront(nil)
     }
 
-    private func showColorPanel(forSeed: Bool) {
-        pickingSeedColor = forSeed
+    /// 透明玻璃子菜单：开关、底色浓度 / 模糊强度滑块、底色选择（含屏幕取色）。
+    private func glassMenu() -> NSMenuItem {
+        let item = NSMenuItem(title: "透明玻璃", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        sub.addItem(ActionItem("开启透明玻璃风格", checked: store.glass) { [weak self] in self?.store.glass.toggle() })
+        sub.addItem(.separator())
+        // 调整任一项都顺带打开玻璃风格，免得拖了半天看不到变化
+        sub.addItem(SliderItem("底色浓度", value: store.glassOpacity) { [weak self] value in
+            self?.store.glass = true
+            self?.store.glassOpacity = value
+        })
+        sub.addItem(SliderItem("背景模糊", value: store.glassBlur) { [weak self] value in
+            self?.store.glass = true
+            self?.store.glassBlur = value
+        })
+        sub.addItem(.separator())
+
+        let header = NSMenuItem(title: "玻璃底色", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        sub.addItem(header)
+        let presets = [("跟随主题", "theme"), ("纯白", "ffffff"), ("纯黑", "000000"), ("暖灰", "8a817c"), ("雾蓝", "6b8cae")]
+        for (title, value) in presets {
+            sub.addItem(ActionItem(title, checked: store.glassTint == value) { [weak self] in
+                self?.store.glass = true
+                self?.store.glassTint = value
+            })
+        }
+        let isCustom = !presets.contains { $0.1 == store.glassTint }
+        sub.addItem(ActionItem("从屏幕吸取颜色…", checked: isCustom) { [weak self] in self?.sampleScreenColor() })
+        sub.addItem(ActionItem("自定义颜色…") { [weak self] in self?.showColorPanel(for: .glassTint) })
+        item.submenu = sub
+        return item
+    }
+
+    /// 系统取色器：鼠标变成放大镜，点哪里就取哪里的颜色（不需要屏幕录制权限）。
+    private func sampleScreenColor() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSColorSampler().show { [weak self] color in
+            guard let self, let color, let hex = Self.hex(color) else { return }
+            self.store.glass = true
+            self.store.glassTint = hex
+        }
+    }
+
+    private static func hex(_ color: NSColor) -> String? {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return nil }
+        let value = ColorMath.pack(Int((rgb.redComponent * 255).rounded()), Int((rgb.greenComponent * 255).rounded()),
+                                   Int((rgb.blueComponent * 255).rounded()))
+        return String(format: "%06x", value)
+    }
+
+    private func showColorPanel(for target: ColorTarget) {
+        colorTarget = target
         let panel = NSColorPanel.shared
-        panel.title = forSeed ? "选择主题色" : "选择数字颜色"
+        switch target {
+        case .seed: panel.title = "选择主题色"
+        case .digits: panel.title = "选择数字颜色"
+        case .glassTint:
+            panel.title = "选择玻璃底色"
+            if let current = Store.color(hex: store.glassTint) { panel.color = NSColor(current) }
+        }
         panel.setTarget(self)
         panel.setAction(#selector(customColorChanged(_:)))
         panel.showsAlpha = false
@@ -412,14 +516,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func customColorChanged(_ sender: NSColorPanel) {
-        guard let color = sender.color.usingColorSpace(.sRGB) else { return }
-        let hex = ColorMath.pack(Int((color.redComponent * 255).rounded()), Int((color.greenComponent * 255).rounded()),
-                                 Int((color.blueComponent * 255).rounded()))
-        let formatted = String(format: "%06x", hex)
-        if pickingSeedColor {
-            store.seedMode = formatted
-        } else {
-            store.digitColor = formatted
+        guard let formatted = Self.hex(sender.color) else { return }
+        switch colorTarget {
+        case .seed: store.seedMode = formatted
+        case .digits: store.digitColor = formatted
+        case .glassTint:
+            store.glass = true
+            store.glassTint = formatted
         }
     }
 }
@@ -427,7 +530,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 // MARK: 入口
 
 /// `--snapshot <png> [--light] [--seed <hex>] [--12h] [--style …] [--digits …] [--font …] [--color <hex>]
-/// [--weather <WMO 代码>] [--zoom <倍数>] [--wide <宽度倍数>] [--tall <额外高度>]`：离屏渲染一张预览图，用于检查样式。
+/// [--weather <WMO 代码>] [--zoom <倍数>] [--wide <宽度倍数>] [--tall <额外高度>]
+/// [--glass [--tint <hex>] [--opacity <0…1>] [--blur <0…1>]]`：离屏渲染一张预览图，用于检查样式。
 @MainActor
 func renderSnapshot(to path: String, arguments: [String]) {
     func value(_ flag: String) -> String? {
@@ -441,16 +545,24 @@ func renderSnapshot(to path: String, arguments: [String]) {
     let dark = !arguments.contains("--light")
     let sample = [City(name: "东京", tzID: "Asia/Tokyo"), City(name: "伦敦", tzID: "Europe/London")]
     let weather = Weather(temperature: 18.4, high: 22, low: 12, code: Int(value("--weather") ?? "2") ?? 2, isDay: true)
+    let glass = arguments.contains("--glass")
+    let theme = Store.theme(themes, dark: dark, digitColor: value("--color") ?? store.digitColor)
     let card = ClockCard(date: Date(), cities: sample, use24h: !arguments.contains("--12h"),
-                         theme: Store.theme(themes, dark: dark, digitColor: value("--color") ?? store.digitColor),
+                         theme: glass ? theme.glassy(dark: dark, tint: value("--tint").flatMap(Store.color(hex:)),
+                                                    opacity: number("--opacity").map(Double.init) ?? 0.3) : theme,
                          style: value("--style").flatMap(ClockStyle.init(rawValue:)) ?? .classic, weather: weather,
                          widthFactor: number("--wide") ?? 1, extraHeight: number("--tall") ?? 0,
-                         weatherAnimationPaused: arguments.contains("--no-animation") ? nil : true)
+                         weatherAnimationPaused: arguments.contains("--no-animation") ? nil : true, glass: glass, glassBlur: number("--blur").map(Double.init) ?? 1)
+        .environment(\.isSnapshot, true)
+        .environment(\.colorScheme, dark ? .dark : .light)
         .environment(\.zoom, zoom)
         .environment(\.look, Look(textFont: value("--font") ?? TextFont.dot,
                                   digitStyle: value("--digits").flatMap(DigitStyle.init(rawValue:)) ?? .round))
         .padding(24)
-        .background(Color(white: 0.35))
+        .background(glass
+            ? AnyView(LinearGradient(colors: [Color(red: 0.95, green: 0.45, blue: 0.35), Color(red: 0.25, green: 0.35, blue: 0.85)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+            : AnyView(Color(white: 0.35)))
     let renderer = ImageRenderer(content: card)
     renderer.scale = 2
     guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,

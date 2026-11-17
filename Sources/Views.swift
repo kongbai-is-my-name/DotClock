@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum ClockFormat {
@@ -189,6 +190,9 @@ struct ClockCard: View {
     var extraHeight: CGFloat = 0
     /// nil = 关闭天气动画
     var weatherAnimationPaused: Bool?
+    var glass = false
+    /// 玻璃背景的模糊强度 0…1
+    var glassBlur: Double = 1
     @Environment(\.zoom) private var z
 
     var body: some View {
@@ -243,9 +247,108 @@ struct ClockCard: View {
         .padding(.top, 18 * z)
         .padding(.bottom, (hasRows ? 6 : 18) * z)
         .frame(width: ClockFormat.widgetWidth * z * widthFactor, alignment: .leading)
-        .background(theme.surface)
+        .background {
+            if glass {
+                GlassBackground(tint: theme.surface, blur: glassBlur, cornerRadius: 26 * z)
+            } else {
+                theme.surface
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 26 * z, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26 * z, style: .continuous).strokeBorder(theme.border, lineWidth: 1))
+        .overlay {
+            if glass {
+                GlassRim(cornerRadius: 26 * z)
+            } else {
+                RoundedRectangle(cornerRadius: 26 * z, style: .continuous).strokeBorder(theme.border, lineWidth: 1)
+            }
+        }
+    }
+}
+
+private struct SnapshotKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 离屏渲染预览图时为 true：ImageRenderer 画不出 NSVisualEffectView，玻璃改用近似效果。
+    var isSnapshot: Bool {
+        get { self[SnapshotKey.self] }
+        set { self[SnapshotKey.self] = newValue }
+    }
+}
+
+/// 实时模糊窗口后面的桌面。
+struct BackdropBlur: NSViewRepresentable {
+    let cornerRadius: CGFloat
+    /// 模糊层的不透明度，越低越能看清背后的桌面
+    var amount: Double = 1
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.material = .hudWindow
+        view.state = .active
+        view.wantsLayer = true
+        view.layer?.masksToBounds = true
+        view.layer?.cornerCurve = .continuous
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.layer?.cornerRadius = cornerRadius
+        view.alphaValue = amount
+    }
+}
+
+/// 玻璃底：模糊的桌面 + 半透明主题色 + 顶部柔光，模拟 Liquid Glass 的厚玻璃折射感。
+struct GlassBackground: View {
+    let tint: Color
+    var blur: Double = 1
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.isSnapshot) private var isSnapshot
+
+    var body: some View {
+        let dark = scheme == .dark
+        ZStack {
+            if isSnapshot {
+                (dark ? Color.black : Color.white).opacity(0.18 * blur)
+            } else {
+                BackdropBlur(cornerRadius: cornerRadius, amount: blur)
+            }
+            tint
+            // 顶部的漫射高光，越往下越淡
+            LinearGradient(colors: [.white.opacity(dark ? 0.10 : 0.30), .white.opacity(0)],
+                           startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.45))
+            // 底边的一点回光，让玻璃显得有厚度
+            LinearGradient(colors: [.white.opacity(0), .white.opacity(dark ? 0.05 : 0.12)],
+                           startPoint: UnitPoint(x: 0.5, y: 0.7), endPoint: .bottom)
+        }
+    }
+}
+
+/// 玻璃边缘的镜面高光：左上和右下亮，两侧暗，外加一圈很细的内阴影线。
+struct GlassRim: View {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.zoom) private var z
+
+    var body: some View {
+        let dark = scheme == .dark
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        ZStack {
+            shape.strokeBorder(
+                LinearGradient(stops: [
+                    .init(color: .white.opacity(dark ? 0.55 : 0.95), location: 0),
+                    .init(color: .white.opacity(dark ? 0.08 : 0.25), location: 0.35),
+                    .init(color: .white.opacity(dark ? 0.04 : 0.15), location: 0.65),
+                    .init(color: .white.opacity(dark ? 0.30 : 0.60), location: 1),
+                ], startPoint: .topLeading, endPoint: .bottomTrailing),
+                lineWidth: 1.2 * max(1, z * 0.8))
+            shape.inset(by: 1.5 * max(1, z * 0.8))
+                .strokeBorder(Color.black.opacity(dark ? 0.25 : 0.06), lineWidth: 0.5)
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -290,7 +393,7 @@ struct WidgetRoot: View {
                       style: store.style, showDayProgress: store.showDayProgress,
                       weather: store.showWeather ? store.weather : nil, fahrenheit: store.fahrenheit,
                       widthFactor: store.widthFactor, extraHeight: store.extraHeight,
-                      weatherAnimationPaused: store.animateWeather ? !store.isVisible : nil)
+                      weatherAnimationPaused: store.animateWeather ? !store.isVisible : nil, glass: store.glass, glassBlur: store.glassBlur)
                 .environment(\.look, store.look)
                 .environment(\.zoom, store.zoom)
         }
