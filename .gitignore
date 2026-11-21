@@ -1,0 +1,5 @@
+# macOS Finder 元数据
+.DS_Store
+
+# 构建产物：由 build.sh / package.sh 自动生成，不需要纳入版本管理
+/build/
