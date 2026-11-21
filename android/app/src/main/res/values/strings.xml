@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">点阵时钟</string>
+    <string name="widget_name">点阵时钟</string>
+    <string name="widget_description">点阵时钟与天气，可自由调整大小</string>
+</resources>

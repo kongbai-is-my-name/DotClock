@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 默认 4×2，可在桌面上自由拉伸：小尺寸只显示时间，越大显示的内容越多（今日进度、天气、世界时钟） -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
+    android:maxResizeWidth="1200dp"
+    android:maxResizeHeight="1200dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen|keyguard"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_clock"
+    android:previewImage="@drawable/widget_preview"
+    android:description="@string/widget_description" />
