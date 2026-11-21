@@ -1,2 +1,0 @@
-{ "version": 0, "roots": [ { "type": "directory", "name": "/Library/Developer/CommandLineTools/usr/include/swift", "contents": [
-  { "type": "file", "name": "module.modulemap", "external-contents": "/Users/kongbai/Develop/时钟/build/vfs/empty.modulemap" } ] } ] }
